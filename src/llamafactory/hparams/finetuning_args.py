@@ -506,6 +506,10 @@ class FinetuningArguments(
         default=1.0,
         metadata={"help": "The alpha parameter for EAFT loss to control the power of adaptive weight."},
     )
+    use_fast_cross_entropy: bool = field(
+        default=False,
+        metadata={"help": "Use fused linear cross entropy loss to reduce VRAM usage for large vocabularies."},
+    )
     freeze_vision_tower: bool = field(
         default=True,
         metadata={"help": "Whether ot not to freeze the vision tower in MLLM training."},

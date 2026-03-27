@@ -158,6 +158,34 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 ref_logits = ref_outputs.logits
             outputs = model(**inputs)
             return self.compute_loss_func(outputs, inputs["labels"], ref_logits)
+        elif self.finetuning_args.use_fast_cross_entropy and model.training:
+            # Only use fused CE during training (not evaluation)
+            from ..fast_cross_entropy import fused_linear_cross_entropy_loss
+
+            labels = inputs["labels"]
+            model_inputs = {k: v for k, v in inputs.items() if k != "labels"}
+
+            # Unwrap DeepSpeed/DDP/PEFT to find the model with lm_head
+            unwrapped = model
+            while hasattr(unwrapped, "module"):  # DeepSpeed / DDP
+                unwrapped = unwrapped.module
+            if hasattr(unwrapped, "get_base_model"):  # PEFT
+                unwrapped = unwrapped.get_base_model()
+            while not hasattr(unwrapped, "lm_head") and hasattr(unwrapped, "model"):
+                unwrapped = unwrapped.model
+
+            # Replace lm_head with Identity to get hidden_states instead of logits
+            original_lm_head = unwrapped.lm_head
+            lm_head_weight = original_lm_head.weight
+
+            try:
+                unwrapped.lm_head = torch.nn.Identity()
+                outputs = model(**model_inputs)
+                hidden_states = outputs.logits  # (batch, seq_len, hidden_dim)
+            finally:
+                unwrapped.lm_head = original_lm_head
+
+            return fused_linear_cross_entropy_loss(hidden_states, lm_head_weight, labels)
         else:
             return super().compute_loss(model, inputs, *args, **kwargs)
 

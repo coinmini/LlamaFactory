@@ -79,9 +79,22 @@ class Template:
         system: Optional[str] = None,
         tools: Optional[str] = None,
     ) -> list[tuple[list[int], list[int]]]:
-        r"""Return multiple pairs of token ids representing prompts and responses respectively."""
+        r"""Return multiple pairs of token ids representing prompts and responses respectively.
+
+        Uses role-based pairing: user/observation tokens become source (masked),
+        assistant/function tokens become target (loss computed).
+        """
         encoded_messages = self._encode(tokenizer, messages, system, tools)
-        return [(encoded_messages[i], encoded_messages[i + 1]) for i in range(0, len(encoded_messages), 2)]
+        pairs: list[tuple[list[int], list[int]]] = []
+        source_ids: list[int] = []
+        for i, message in enumerate(messages):
+            if message["role"] in (Role.USER, Role.OBSERVATION):
+                source_ids += encoded_messages[i]
+            else:  # Role.ASSISTANT or Role.FUNCTION
+                pairs.append((source_ids, encoded_messages[i]))
+                source_ids = []
+
+        return pairs
 
     def extract_tool(self, content: str) -> Union[str, list["FunctionCall"]]:
         r"""Extract tool message."""
@@ -414,8 +427,10 @@ class ReasoningTemplate(Template):
         tools: Optional[str] = None,
     ) -> tuple[list[int], list[int]]:
         messages = deepcopy(messages)
-        for i in range(1, len(messages) - 2, 2):
-            messages[i]["content"] = self.remove_thought(messages[i]["content"])
+        # Remove thought from all assistant/function messages except the last one
+        for i in range(len(messages) - 1):
+            if messages[i]["role"] in (Role.ASSISTANT, Role.FUNCTION):
+                messages[i]["content"] = self.remove_thought(messages[i]["content"])
 
         if self.enable_thinking is False:  # remove all cot
             messages[-1]["content"] = self.remove_thought(messages[-1]["content"])
@@ -442,21 +457,40 @@ class ReasoningTemplate(Template):
     ) -> list[tuple[list[int], list[int]]]:
         messages = deepcopy(messages)
         if self.enable_thinking is False:  # remove all cot
-            for i in range(1, len(messages), 2):
-                messages[i]["content"] = self.remove_thought(messages[i]["content"])
+            for i, message in enumerate(messages):
+                if message["role"] in (Role.ASSISTANT, Role.FUNCTION):
+                    messages[i]["content"] = self.remove_thought(messages[i]["content"])
 
         encoded_messages = self._encode(tokenizer, messages, system, tools)
-        for i in range(0, len(messages), 2):
-            if (
-                self.thought_words[0].strip() not in messages[i + 1]["content"]
-                and self.thought_words[1].strip() not in messages[i + 1]["content"]
-            ):  # add empty cot
-                if not self.enable_thinking:  # do not compute loss
-                    encoded_messages[i] += self.get_thought_word_ids(tokenizer)
-                else:  # do compute loss
-                    encoded_messages[i + 1] = self.get_thought_word_ids(tokenizer) + encoded_messages[i + 1]
+        # Add empty cot to assistant/function messages that lack thought words
+        for i, message in enumerate(messages):
+            if message["role"] in (Role.ASSISTANT, Role.FUNCTION):
+                if (
+                    self.thought_words[0].strip() not in message["content"]
+                    and self.thought_words[1].strip() not in message["content"]
+                ):  # add empty cot
+                    # Find the preceding source index to append thought tokens
+                    prev_source_idx = i - 1 if i > 0 and messages[i - 1]["role"] in (Role.USER, Role.OBSERVATION) else None
+                    if not self.enable_thinking:  # do not compute loss
+                        if prev_source_idx is not None:
+                            encoded_messages[prev_source_idx] += self.get_thought_word_ids(tokenizer)
+                        else:
+                            # No preceding source, prepend to target as non-loss tokens
+                            encoded_messages[i] = self.get_thought_word_ids(tokenizer) + encoded_messages[i]
+                    else:  # do compute loss
+                        encoded_messages[i] = self.get_thought_word_ids(tokenizer) + encoded_messages[i]
 
-        return [(encoded_messages[i], encoded_messages[i + 1]) for i in range(0, len(encoded_messages), 2)]
+        # Role-based pairing
+        pairs: list[tuple[list[int], list[int]]] = []
+        source_ids: list[int] = []
+        for i, message in enumerate(messages):
+            if message["role"] in (Role.USER, Role.OBSERVATION):
+                source_ids += encoded_messages[i]
+            else:  # Role.ASSISTANT or Role.FUNCTION
+                pairs.append((source_ids, encoded_messages[i]))
+                source_ids = []
+
+        return pairs
 
 
 @dataclass

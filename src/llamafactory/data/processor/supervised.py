@@ -107,7 +107,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
         # for multiturn examples, we only mask the prompt part in each prompt-response pair.
         model_inputs = defaultdict(list)
         for i in range(len(examples["_prompt"])):
-            if len(examples["_prompt"][i]) % 2 != 1 or len(examples["_response"][i]) != 1:
+            if len(examples["_response"][i]) != 1:
                 logger.warning_rank0(
                     "Dropped invalid example: {}".format(examples["_prompt"][i] + examples["_response"][i])
                 )
@@ -150,7 +150,7 @@ class PackedSupervisedDatasetProcessor(SupervisedDatasetProcessor):
         lengths = []
         length2indexes = defaultdict(list)
         for i in range(len(examples["_prompt"])):
-            if len(examples["_prompt"][i]) % 2 != 1 or len(examples["_response"][i]) != 1:
+            if len(examples["_response"][i]) != 1:
                 logger.warning_rank0(
                     "Dropped invalid example: {}".format(examples["_prompt"][i] + examples["_response"][i])
                 )

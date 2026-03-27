@@ -141,9 +141,12 @@ class SharegptDatasetConverter(DatasetConverter):
             self.dataset_attr.function_tag: Role.FUNCTION.value,
             self.dataset_attr.system_tag: Role.SYSTEM.value,
         }
-        odd_tags = (self.dataset_attr.user_tag, self.dataset_attr.observation_tag)
-        even_tags = (self.dataset_attr.assistant_tag, self.dataset_attr.function_tag)
-        accept_tags = (odd_tags, even_tags)
+        all_tags = (
+            self.dataset_attr.user_tag,
+            self.dataset_attr.assistant_tag,
+            self.dataset_attr.observation_tag,
+            self.dataset_attr.function_tag,
+        )
         messages = example[self.dataset_attr.messages]
         if (
             self.dataset_attr.system_tag
@@ -158,7 +161,7 @@ class SharegptDatasetConverter(DatasetConverter):
         aligned_messages = []
         broken_data = False
         for turn_idx, message in enumerate(messages):
-            if message[self.dataset_attr.role_tag] not in accept_tags[turn_idx % 2]:
+            if message[self.dataset_attr.role_tag] not in all_tags:
                 logger.warning_rank0(f"Invalid role tag in {messages}.")
                 broken_data = True
                 break
@@ -170,10 +173,8 @@ class SharegptDatasetConverter(DatasetConverter):
                 }
             )
 
-        if (not self.dataset_attr.ranking and len(aligned_messages) % 2 != 0) or (
-            self.dataset_attr.ranking and len(aligned_messages) % 2 == 0
-        ):
-            logger.warning_rank0(f"Invalid message count in {messages}.")
+        if len(aligned_messages) == 0:
+            logger.warning_rank0(f"Empty message list in {messages}.")
             broken_data = True
 
         if broken_data:
@@ -194,8 +195,8 @@ class SharegptDatasetConverter(DatasetConverter):
             chosen = example[self.dataset_attr.chosen]
             rejected = example[self.dataset_attr.rejected]
             if (
-                chosen[self.dataset_attr.role_tag] not in accept_tags[-1]
-                or rejected[self.dataset_attr.role_tag] not in accept_tags[-1]
+                chosen[self.dataset_attr.role_tag] not in (self.dataset_attr.assistant_tag, self.dataset_attr.function_tag)
+                or rejected[self.dataset_attr.role_tag] not in (self.dataset_attr.assistant_tag, self.dataset_attr.function_tag)
             ):
                 logger.warning_rank0(f"Invalid role tag in {[chosen, rejected]}.")
                 broken_data = True
@@ -282,19 +283,15 @@ class OpenAIDatasetConverter(DatasetConverter):
                 }
             )
 
-        odd_tags = (Role.USER.value, Role.OBSERVATION.value)
-        even_tags = (Role.ASSISTANT.value, Role.FUNCTION.value)
-        accept_tags = (odd_tags, even_tags)
+        all_roles = (Role.USER.value, Role.ASSISTANT.value, Role.OBSERVATION.value, Role.FUNCTION.value)
         for turn_idx, message in enumerate(aligned_messages):
-            if message["role"] not in accept_tags[turn_idx % 2]:
+            if message["role"] not in all_roles:
                 logger.warning_rank0(f"Invalid role tag in {messages}.")
                 broken_data = True
                 break
 
-        if (not self.dataset_attr.ranking and len(aligned_messages) % 2 != 0) or (
-            self.dataset_attr.ranking and len(aligned_messages) % 2 == 0
-        ):
-            logger.warning_rank0(f"Invalid message count in {messages}.")
+        if len(aligned_messages) == 0:
+            logger.warning_rank0(f"Empty message list in {messages}.")
             broken_data = True
 
         if broken_data:
@@ -315,8 +312,8 @@ class OpenAIDatasetConverter(DatasetConverter):
             chosen = example[self.dataset_attr.chosen]
             rejected = example[self.dataset_attr.rejected]
             if (
-                chosen[self.dataset_attr.role_tag] not in accept_tags[-1]
-                or rejected[self.dataset_attr.role_tag] not in accept_tags[-1]
+                chosen[self.dataset_attr.role_tag] not in (self.dataset_attr.assistant_tag, self.dataset_attr.function_tag)
+                or rejected[self.dataset_attr.role_tag] not in (self.dataset_attr.assistant_tag, self.dataset_attr.function_tag)
             ):
                 logger.warning_rank0(f"Invalid role tag in {[chosen, rejected]}.")
                 broken_data = True
